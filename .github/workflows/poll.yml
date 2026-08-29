@@ -1,0 +1,52 @@
+name: poll
+
+on:
+  schedule:
+    # GitHub's shortest cron is 5 minutes and runs are frequently delayed under
+    # load, so treat this as "roughly every 10 minutes", not a guarantee.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+# Needed to commit the seen-state back to the repo.
+permissions:
+  contents: write
+
+concurrency:
+  # Never let two polls overlap -- they would race on data/seen.json and
+  # could double-notify.
+  group: watchog-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run watchers
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -m watchog run
+
+      - name: Persist seen-state
+        run: |
+          if [[ -n "$(git status --porcelain data/)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/
+            git commit -m "chore: update watchog state [skip ci]"
+            # Another run may have pushed while we worked; rebase and retry
+            # rather than failing the whole poll.
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git push
+          else
+            echo "no state change"
+          fi

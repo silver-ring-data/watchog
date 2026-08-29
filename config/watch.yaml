@@ -1,0 +1,18 @@
+# Copy to config/watch.yaml and edit. watch.yaml is gitignored because it
+# resolves real secrets; ${VAR} references are read from the environment.
+
+state_path: data/seen.json
+retention_days: 90
+
+sinks:
+  ntfy:
+    topic: ${NTFY_TOPIC}
+    # server: https://ntfy.sh   # override for a self-hosted instance
+
+watchers:
+  cgv:
+    enabled: false        # turned on once the showtime source is settled
+    poll_note: "see docs/cgv.md"
+
+  jobs:
+    enabled: false

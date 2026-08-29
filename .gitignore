@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Real secrets only. config/watch.yaml holds ${VAR} references, not values,
+# so it is committed on purpose -- GitHub Actions needs it to know what to
+# watch. data/seen.json is committed too: it is how state survives between
+# runs on Actions, where there is no persistent disk.
+.env
+data/*.tmp
