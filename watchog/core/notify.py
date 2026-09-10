@@ -30,6 +30,7 @@ class Alert:
     priority: str = "default"
     tags: list[str] = field(default_factory=list)   # emoji shortcodes
     source: str = ""                # watcher name, for logging
+    actions: list[dict] = field(default_factory=list)   # ntfy action buttons (feedback etc.)
 
     def __post_init__(self) -> None:
         if self.priority not in PRIORITIES:

@@ -9,7 +9,7 @@
 > **설계 정본은 [`docs/plan-v1.md`](docs/plan-v1.md).** 감시 엔진은 [changedetection.io](https://github.com/dgtlmoon/changedetection.io) 를
 > 재사용하고, 이 레포는 그 위의 MCP 서버(자연어 접수·검증·승격)와 ntfy 알림층을 만든다.
 > 전신: [`docs/design-v0.md`](docs/design-v0.md) (MyPlayScheduler, 게임 뉴스 특화).
-> **상태 (2026-09-11)**: 1주차 — 엔진 가동, 채용 감시 수동 등록. MCP 서버는 2주차.
+> **상태 (2026-09-12)**: 레시피 2개(채용·항공권 핫딜) 7소스 가동, MCP 서버 4도구, Actions 러너(dry-run), 일일 점검. 폰 수신 확인·영화관은 사용자 몫.
 
 ## 왜 만드는가
 
@@ -27,14 +27,21 @@
 ```
 사용자 (자연어)
    │
-Claude ── MCP 서버 (watchog, 2주차) ── changedetection.io (Docker) ── ntfy.sh ── 폰
-              │                              │  폴링·렌더링·diff
-              │ add_watch / list / remove    │  모듈별 토픽으로 발송
-              └ test_parse (검증 게이트)      └ 브라우저 컨테이너 (JS 사이트)
+Claude ── MCP 서버 ── recipes/*.yaml (정본) ──┬── changedetection.io (로컬 Docker, 브라우저 소스) ──┐
+   add / list / remove / test_parse          └── GitHub Actions `poll` (피드·requests 소스)     ├── ntfy.sh ── 폰
+                                                                                                │      └ 유용/무시 버튼 → feedback 토픽 → history.sqlite
+   ops daily (하트비트 · 레시피 재검사 · 엔진 상태) ── sys 토픽 ──────────────────────────────────┘
 ```
 
 ```
+recipes/             주제 하나 = 파일 하나. 이게 정본이다
 watchog/
+├─ recipes.py        레시피 로더·검증·changedetection.io 동기화
+├─ extract.py        robots 확인 · 피드 자동 발견 · 셀렉터 후보 · test_parse
+├─ mcp_server.py     Claude 가 부르는 4개 도구
+├─ runner.py         changedetection.io 없이 레시피를 도는 러너 (Actions 용)
+├─ history.py        알림 이력 sqlite + 유용/무시 피드백
+├─ ops.py            하루 한 번: 하트비트 · 재검사 · 엔진 상태
 ├─ cdio.py           changedetection.io REST 클라이언트 — API 모양을 아는 유일한 곳
 ├─ core/
 │   ├─ notify.py     Alert 모델과 발송 (채널 교체 가능)
@@ -86,12 +93,18 @@ python -m watchog test          # 폰에 알림이 뜨면 성공
 폰에서는 ntfy 앱을 설치하고 `.env` 의 토픽을 구독한다. `sys` 토픽은 하트비트·에러용이라 항상 구독하고,
 모듈 토픽은 받고 싶은 것만 구독한다 — **구독이 곧 범위 선택**이다.
 
-## GitHub Actions (자체 워처용, 현재 비활성)
+## 실행 위치 — PC 에 남는 건 브라우저 감시 하나
 
-감시 엔진은 로컬 Docker 에서 돈다 ([ADR 0001](docs/adr/0001-changedetection-로컬-docker.md)). 아래는 무상태 자체 워처를 Actions 로 돌릴 때의 메모다.
+| 어디서 | 무엇 | 명령 |
+|---|---|---|
+| GitHub Actions (`poll.yml`, 30분) | `runner: actions` 레시피 — 피드·requests 페이지 | `python -m watchog poll` |
+| 로컬 Docker | `fetch: browser` 소스 (Google 특가, 영화관) | `docker compose up -d` + `recipes sync` |
+| 로컬 작업 스케줄러 (08:40) | 하트비트 · 레시피 재검사 · 엔진 상태 | `python -m watchog ops daily` |
 
-1. Settings → Secrets → `NTFY_TOPIC` (+ 필요 시 `GEMINI_API_KEY`) 등록
-2. `.github/workflows/poll.yml` 이 약 10분 간격으로 실행
+Actions 는 Settings → Secrets 에 `NTFY_TOPIC`·`NTFY_TOPIC_JOBS`·`NTFY_TOPIC_FLIGHT`·`NTFY_TOPIC_FEEDBACK` 을 넣기 전까지 dry-run 으로만 돈다.
+하트비트는 `.env` 의 `HEALTHCHECK_URL`(healthchecks.io) 이 있을 때만 보낸다.
+
+### Actions 메모
 
 `data/seen.json` 은 **의도적으로 커밋된다.** Actions에는 영구 디스크가 없어서,
 중복 방지 상태를 레포에 되돌려 커밋하는 것이 유일한 지속 수단이다.
@@ -103,8 +116,8 @@ python -m watchog test          # 폰에 알림이 뜨면 성공
 
 | 모듈 | 상태 (2026-09-11) | 판정 | 비고 |
 |---|---|---|---|
-| movie (영화관) | 소스 조사 완료, 미등록 | 규칙 | [docs/cgv.md](docs/cgv.md) — 간단하지 않다 |
-| jobs (채용) | **1층 diff 로 등록됨** (잡코리아 검색 3건) | 규칙 + LLM (2층 예정) | 아래 참고 |
+| movie (영화관) | 미등록 | item → threshold | 롯데시네마는 브라우저 렌더링 확인. 메가박스는 robots 전면 거부. CGV 는 [docs/cgv.md](docs/cgv.md) |
+| jobs (채용) | **사람인 검색 3건 등록됨** (item) | 규칙 + LLM (2층 예정) | 잡코리아는 robots 가 검색 경로를 거부해 제외. 아래 참고 |
 | flight (항공권) | **핫딜 감시 4건 등록됨** (Google Flights 특가 + 뽐뿌·루리웹 RSS·클리앙, "항공" 키워드) | 규칙 (키워드) | 구간 가격 추적은 하지 않는다. Google 은 브라우저 컨테이너 필수 |
 | gamenews (게임뉴스) | 설계만 있음 | 규칙 + LLM | 구 MyPlayScheduler. 캘린더 동기화는 이때 다시 본다 |
 

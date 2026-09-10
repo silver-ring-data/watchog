@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "watchog": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "watchog.mcp_server"
+      ],
+      "env": {}
+    }
+  }
+}

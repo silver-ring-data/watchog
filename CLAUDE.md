@@ -78,6 +78,7 @@ python -m ruff check .               # 린트
 | CGV 구 `iframeTheater.aspx` 파싱 | SPA 셸 HTML 200 이 와서 조용히 실패 | [docs/cgv.md](docs/cgv.md) 의 신규 API·레거시 백엔드 |
 | GitHub Actions 에서 changedetection.io | 상시 프로세스를 못 둠 | 로컬 Docker ([0001](docs/adr/0001-changedetection-로컬-docker.md)) |
 | `load_dotenv()` 를 인자 없이 stdin 스크립트에서 | 프레임 탐색이 실패 (Python 3.14) | `load_dotenv(find_dotenv(usecwd=True))` |
+| changedetection.io API 로 `time_between_check` 만 넣기 | `time_between_check_use_default` 가 기본 True 라 무시되고 전역 3시간이 적용됨 (감시 7건이 100분째 미확인으로 발견) | 레시피 동기화가 그 플래그를 False 로 같이 보낸다 |
 | 잡코리아 검색 페이지 감시 | robots.txt 가 `/Search/?stext=` 를 명시 거부 | 사람인 (허용). 등록 전 `parse` 가 robots 를 본다 |
 | RSS 항목을 `select` 로 키워드 필터 (`//item/title[contains(.,"항공")]`) | 해당 글이 없는 시점에 필터 실패 오류 | `select` 는 전체, `trigger` 로 키워드 |
 

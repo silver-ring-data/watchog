@@ -6,6 +6,10 @@
     python -m watchog recipes list              show recipes and their sources
     python -m watchog recipes sync [--dry-run]  push recipes to changedetection.io
     python -m watchog parse URL [SELECTOR]      preview what a source would yield
+    python -m watchog poll [--runner actions] [--dry-run]   run recipes without changedetection.io
+    python -m watchog ops daily [--dry-run]     heartbeat + recheck every recipe + engine status
+    python -m watchog history [RECIPE] [--days 7]           recent alerts
+    python -m watchog feedback pull             pull 유용/무시 votes from the feedback topic
 """
 
 from __future__ import annotations
@@ -127,6 +131,59 @@ def cmd_parse(cfg: dict, args: argparse.Namespace) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_poll(cfg: dict, args: argparse.Namespace) -> int:
+    from watchog import recipes as recipes_mod
+    from watchog import runner
+
+    found = recipes_mod.load_all(args.dir)
+    only = None if args.runner == "all" else args.runner
+    state_path = cfg.get("state_path", "data/seen.json")
+    if args.seed:
+        n = runner.first_run_seeds(found, state_path)
+        print(f"현재 항목 {n}건을 본 것으로 기록했습니다 (첫 실행 폭주 방지)")
+        return 0
+    results = runner.run(found, state_path=state_path, retention_days=cfg.get("retention_days", 90),
+                         only_runner=only, dry_run=args.dry_run)
+    failed = [r for r in results if not r.ok]
+    print(f"소스 {len(results)}개 · 새 항목 {sum(len(r.new_items) for r in results)}건 · 실패 {len(failed)}건")
+    return 1 if failed else 0
+
+
+def cmd_ops(cfg: dict, args: argparse.Namespace) -> int:
+    from watchog import ops
+    from watchog import recipes as recipes_mod
+
+    report = ops.daily(recipes_mod.load_all(args.dir), dry_run=args.dry_run)
+    print(f"engine={report.engine} checked={report.checked} heartbeat={report.heartbeat}")
+    for problem in report.problems:
+        print(f"  ! {problem}")
+    return 0 if report.ok else 1
+
+
+def cmd_history(cfg: dict, args: argparse.Namespace) -> int:
+    from datetime import datetime
+
+    from watchog import history as history_mod
+
+    with history_mod.History() as h:
+        rows = h.recent(args.recipe, days=args.days)
+        fb = h.feedback_summary(args.recipe)
+    for r in rows:
+        when = datetime.fromtimestamp(r.ts).strftime("%m-%d %H:%M")
+        print(f"{when}  [{r.topic}] {r.title}")
+    print(f"{len(rows)}건 · 피드백 {fb or '없음'}")
+    return 0
+
+
+def cmd_feedback(cfg: dict, args: argparse.Namespace) -> int:
+    from watchog import history as history_mod
+
+    with history_mod.History() as h:
+        n = history_mod.pull_feedback(h)
+    print(f"피드백 {n}건 수신")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="watchog")
     parser.add_argument("-c", "--config", default=config_mod.DEFAULT_PATH)
@@ -147,6 +204,24 @@ def main(argv: list[str] | None = None) -> int:
     parse.add_argument("url")
     parse.add_argument("selector", nargs="?")
 
+    poll = sub.add_parser("poll", help="run recipes with our own code (no changedetection.io)")
+    poll.add_argument("--dir", default="recipes")
+    poll.add_argument("--runner", choices=["actions", "local", "all"], default="actions")
+    poll.add_argument("--dry-run", action="store_true")
+    poll.add_argument("--seed", action="store_true", help="mark everything currently visible as seen")
+
+    ops = sub.add_parser("ops", help="daily heartbeat, recheck, engine status")
+    ops.add_argument("action", choices=["daily"])
+    ops.add_argument("--dir", default="recipes")
+    ops.add_argument("--dry-run", action="store_true")
+
+    hist = sub.add_parser("history", help="recent alerts from the sqlite history")
+    hist.add_argument("recipe", nargs="?")
+    hist.add_argument("--days", type=int, default=7)
+
+    fb = sub.add_parser("feedback", help="pull 유용/무시 votes from the ntfy feedback topic")
+    fb.add_argument("action", choices=["pull"])
+
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
 
@@ -161,6 +236,14 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_recipes(cfg, args)
     if args.command == "parse":
         return cmd_parse(cfg, args)
+    if args.command == "poll":
+        return cmd_poll(cfg, args)
+    if args.command == "ops":
+        return cmd_ops(cfg, args)
+    if args.command == "history":
+        return cmd_history(cfg, args)
+    if args.command == "feedback":
+        return cmd_feedback(cfg, args)
     return cmd_run(cfg, args)
 
 

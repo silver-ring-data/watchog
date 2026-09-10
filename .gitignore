@@ -12,3 +12,7 @@ data/*.tmp
 
 # changedetection.io 데이터 (감시 목록·스냅샷·API 키)
 data/changedetection/
+
+# 운영 로그
+data/ops.log
+data/history.sqlite

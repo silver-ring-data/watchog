@@ -85,6 +85,7 @@ def test_to_watches(tmp_path, monkeypatch):
     assert watches[1]["trigger_text"] == ["항공"]
     assert watches[1]["notification_urls"] == ["ntfys://ntfy.sh/flight-x"]
     assert watches[0]["time_between_check"]["hours"] == 12
+    assert watches[0]["time_between_check_use_default"] is False
 
 
 def test_actions_runner_exports_nothing(tmp_path, monkeypatch):

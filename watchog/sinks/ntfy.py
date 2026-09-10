@@ -41,6 +41,8 @@ def send(alert: Alert, cfg: dict) -> None:
         # Opens straight from the notification -- worth seconds when a
         # booking window has just opened.
         payload["click"] = alert.url
+    if alert.actions:
+        payload["actions"] = alert.actions
 
     headers = {}
     # Reserved topics on a self-hosted or paid server need auth; the free

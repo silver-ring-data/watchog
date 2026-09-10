@@ -1,19 +1,23 @@
 name: poll
 
+# runner: actions 인 레시피를 changedetection.io 없이 우리 코드로 폴링한다.
+# 브라우저 렌더링이 필요한 소스(fetch: browser)는 로컬 Docker 몫이라 여기 오지 않는다.
+#
+# 시크릿이 없으면 dry-run 으로만 돈다 (가져오고 뽑되 보내지 않고 상태도 남기지 않는다).
+# 시크릿: NTFY_TOPIC, NTFY_TOPIC_JOBS, NTFY_TOPIC_FLIGHT, NTFY_TOPIC_FEEDBACK (필요한 토픽만), GEMINI_API_KEY (판정층 이후)
+
 on:
   schedule:
-    # GitHub's shortest cron is 5 minutes and runs are frequently delayed under
-    # load, so treat this as "roughly every 10 minutes", not a guarantee.
-    - cron: "*/10 * * * *"
+    # GitHub 의 최소 간격은 5분이고 부하에 따라 자주 지연된다. 비공개 레포는 월 2,000분 한도가 있어 30분으로 둔다.
+    - cron: "17,47 * * * *"
   workflow_dispatch:
 
-# Needed to commit the seen-state back to the repo.
+# seen-state 를 레포에 되돌려 커밋하기 위해 필요하다.
 permissions:
   contents: write
 
 concurrency:
-  # Never let two polls overlap -- they would race on data/seen.json and
-  # could double-notify.
+  # 두 폴링이 겹치면 data/seen.json 에서 경쟁해 중복 발송할 수 있다.
   group: watchog-poll
   cancel-in-progress: false
 
@@ -30,21 +34,31 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Run watchers
+      - name: Run recipes (runner: actions)
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOPIC_JOBS: ${{ secrets.NTFY_TOPIC_JOBS }}
+          NTFY_TOPIC_FLIGHT: ${{ secrets.NTFY_TOPIC_FLIGHT }}
+          NTFY_TOPIC_MOVIE: ${{ secrets.NTFY_TOPIC_MOVIE }}
+          NTFY_TOPIC_FEEDBACK: ${{ secrets.NTFY_TOPIC_FEEDBACK }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python -m watchog run
+        run: |
+          if [[ -z "$NTFY_TOPIC" ]]; then
+            echo "시크릿이 없어 dry-run 으로 돕니다"
+            python -m watchog poll --runner actions --dry-run
+          else
+            python -m watchog poll --runner actions
+            python -m watchog feedback pull || true
+          fi
 
-      - name: Persist seen-state
+      - name: Persist seen-state and history
         run: |
           if [[ -n "$(git status --porcelain data/)" ]]; then
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add data/
             git commit -m "chore: update watchog state [skip ci]"
-            # Another run may have pushed while we worked; rebase and retry
-            # rather than failing the whole poll.
+            # 다른 실행이 먼저 푸시했을 수 있다. 실패시키지 말고 리베이스 후 재시도.
             git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
             git push
           else

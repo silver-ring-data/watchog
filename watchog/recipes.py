@@ -158,6 +158,8 @@ class Recipe:
                 "tag": self.topic,
                 "notification_urls": [cdio.ntfy_url(topic)],
                 "time_between_check": parse_interval(s.every),
+                # 이 플래그가 켜져 있으면(기본값) 위 간격을 무시하고 전역 기본값(3시간)을 쓴다.
+                "time_between_check_use_default": False,
                 "fetch_backend": cdio.FETCH_BROWSER if s.fetch == "browser" else cdio.FETCH_REQUESTS,
             }
             if s.select:
