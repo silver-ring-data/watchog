@@ -1,0 +1,27 @@
+# 채용 — 사람인 검색 결과에 새 공고가 뜨면 알린다.
+# 잡코리아는 robots.txt 가 /Search/?stext= 를 명시적으로 거부해서 쓰지 않는다 (막힌 소스는 뚫지 않는다).
+# 사람인은 robots 허용, 셀렉터는 test_parse 가 제안한 후보를 확인한 것.
+# 1층(item) 로 시작. 2층 LLM 판정("내가 원하는 공고인지")은 이 위에 얹는다.
+# runner 는 Actions 시크릿(NTFY 토픽·Gemini 키)이 등록되면 actions 로 바꾼다.
+name: jobs
+topic: jobs
+kind: item
+mode: instant
+runner: local
+sources:
+  - type: web
+    title: 사람인 · MLOps
+    url: https://www.saramin.co.kr/zf_user/search?searchword=MLOps
+    select: div.area_job a.data_layer
+    every: 1h
+  - type: web
+    title: 사람인 · Forward Deployed
+    url: https://www.saramin.co.kr/zf_user/search?searchword=Forward%20Deployed
+    select: div.area_job a.data_layer
+    every: 1h
+  - type: web
+    title: 사람인 · AI 플랫폼
+    url: https://www.saramin.co.kr/zf_user/search?searchword=AI%20%ED%94%8C%EB%9E%AB%ED%8F%BC
+    select: div.area_job a.data_layer
+    every: 1h
+verified: 2026-09-11

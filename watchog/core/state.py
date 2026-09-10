@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class SeenStore:
 
     def mark(self, namespace: str, item_id: str) -> None:
         self._seen[self._key(namespace, item_id)] = datetime.now(
-            timezone.utc
+            UTC
         ).isoformat(timespec="seconds")
         self._dirty = True
 
@@ -64,7 +64,7 @@ class SeenStore:
 
     def prune(self) -> int:
         """Drop entries older than the retention window. Returns count removed."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=self.retention_days)
         stale = []
         for key, stamp in self._seen.items():
             try:
@@ -92,7 +92,7 @@ class SeenStore:
         tmp.replace(self.path)
         self._dirty = False
 
-    def __enter__(self) -> "SeenStore":
+    def __enter__(self) -> SeenStore:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

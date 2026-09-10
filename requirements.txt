@@ -1,3 +1,7 @@
 requests>=2.32
 PyYAML>=6.0
 python-dotenv>=1.0
+lxml>=5.0
+cssselect>=1.2
+feedparser>=6.0
+mcp>=1.0

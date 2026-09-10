@@ -1,8 +1,11 @@
 """watchog command line.
 
-    python -m watchog test              send a test alert through every sink
-    python -m watchog run               run every enabled watcher once
-    python -m watchog run --only cgv    run one watcher
+    python -m watchog test                      send a test alert through every sink
+    python -m watchog run [--only NAME]         run the self-contained watchers once
+    python -m watchog recipes check             validate recipes/*.yaml
+    python -m watchog recipes list              show recipes and their sources
+    python -m watchog recipes sync [--dry-run]  push recipes to changedetection.io
+    python -m watchog parse URL [SELECTOR]      preview what a source would yield
 """
 
 from __future__ import annotations
@@ -69,6 +72,61 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def cmd_recipes(cfg: dict, args: argparse.Namespace) -> int:
+    from watchog import recipes as recipes_mod
+
+    try:
+        found = recipes_mod.load_all(args.dir)
+    except recipes_mod.RecipeError as e:
+        print(f"레시피 오류: {e}", file=sys.stderr)
+        return 2
+    if args.action == "check":
+        for r in found:
+            print(f"ok  {r.name}  kind={r.kind} mode={r.mode} runner={r.runner} sources={len(r.sources)} verified={r.verified}")
+        print(f"{len(found)}개 레시피 정상")
+        return 0
+    if args.action == "list":
+        for r in found:
+            print(f"{r.name}  [{r.topic}] {r.kind}/{r.mode} runner={r.runner}")
+            for i, src in enumerate(r.sources):
+                print(f"   {i}. {src.type:<10} {src.every:<4} {src.fetch:<8} {src.title or src.url}")
+        return 0
+    from watchog.cdio import ChangeDetection
+
+    client = ChangeDetection.from_env()
+    try:
+        result = recipes_mod.sync(found, client, dry_run=args.dry_run)
+    except recipes_mod.RecipeError as e:
+        print(f"동기화 중단: {e}", file=sys.stderr)
+        return 2
+    prefix = "(dry-run) " if args.dry_run else ""
+    for action, keys in result.items():
+        if keys:
+            print(f"{prefix}{action}: {', '.join(keys)}")
+    return 0
+
+
+def cmd_parse(cfg: dict, args: argparse.Namespace) -> int:
+    from watchog import extract
+
+    try:
+        res = extract.test_parse(args.url, args.selector)
+    except extract.ExtractError as e:
+        print(f"[{e.category}] {e}", file=sys.stderr)
+        return 1
+    print(f"url: {res.url}")
+    print(f"selector: {res.selector}")
+    for n in res.notes:
+        print(f"note: {n[:300]}")
+    if res.candidates:
+        for i, c in enumerate(res.candidates):
+            print(f"candidate {i}: {c['selector']}  ({c['count']}건)  예: {' / '.join(c['sample'])[:120]}")
+    print(f"items: {len(res.items)}")
+    for it in res.items[:15]:
+        print(f"  - {it[:100]}")
+    return 0 if res.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="watchog")
     parser.add_argument("-c", "--config", default=config_mod.DEFAULT_PATH)
@@ -80,6 +138,15 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="run watchers once")
     run.add_argument("--only", help="run just this watcher")
 
+    rec = sub.add_parser("recipes", help="manage recipes/*.yaml")
+    rec.add_argument("action", choices=["check", "list", "sync"])
+    rec.add_argument("--dir", default="recipes")
+    rec.add_argument("--dry-run", action="store_true")
+
+    parse = sub.add_parser("parse", help="preview what a URL yields (test_parse)")
+    parse.add_argument("url")
+    parse.add_argument("selector", nargs="?")
+
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
 
@@ -90,6 +157,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "test":
         return cmd_test(cfg, args)
+    if args.command == "recipes":
+        return cmd_recipes(cfg, args)
+    if args.command == "parse":
+        return cmd_parse(cfg, args)
     return cmd_run(cfg, args)
 
 

@@ -1,0 +1,17 @@
+[project]
+name = "watchog"
+version = "0.2.0"
+description = "말 한 줄이 감시 한 건이 되는 개인용 알림 허브"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

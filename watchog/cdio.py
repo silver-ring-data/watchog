@@ -38,7 +38,7 @@ class ChangeDetection:
     api_key: str
 
     @classmethod
-    def from_env(cls) -> "ChangeDetection":
+    def from_env(cls) -> ChangeDetection:
         key = os.environ.get("CDIO_API_KEY")
         if not key:
             raise RuntimeError(

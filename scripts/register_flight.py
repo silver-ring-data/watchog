@@ -5,12 +5,14 @@
 - 커뮤니티 핫딜 피드: 제목 목록을 보되 바뀐 줄에 "항공"이 있을 때만 알림(trigger_text).
   include_filters 로 "항공"만 뽑으면 해당 글이 없는 시점에 필터 실패 오류가 나므로 쓰지 않는다.
 """
-import os, sys
+import os
+import sys
 from pathlib import Path
 
 # 레포 루트에서 실행하지 않아도 watchog 패키지를 찾도록 한다.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv(usecwd=True))
 from watchog import cdio
 
