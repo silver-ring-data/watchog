@@ -26,6 +26,7 @@ TIMEOUT = 20
 FEED_PATHS = ("/rss", "/feed", "/rss.xml", "/feed.xml", "/atom.xml", "/index.xml")
 MAX_ITEMS = 60          # 미리보기·LLM 입력 상한
 MAX_TEXT = 3000         # LLM 에 넘길 때 글자 상한
+_NUMERIC_ONLY = re.compile(r"^[\W\d]+$")
 
 
 class ExtractError(RuntimeError):
@@ -166,7 +167,8 @@ def select_items(page: Fetched, selector: str) -> list[str]:
     for n in nodes:
         text = n if isinstance(n, str) else "".join(n.itertext())
         text = _clean(text)
-        if text:
+        # 댓글 수·페이지 번호처럼 숫자만 있는 조각은 항목이 아니다.
+        if text and not _NUMERIC_ONLY.match(text):
             items.append(text)
     return items[:MAX_ITEMS]
 

@@ -15,11 +15,15 @@ pip install -r requirements.txt
 cp .env.example .env                 # 토픽 생성 방법은 .env.example 주석
 docker compose up -d                 # changedetection.io + 브라우저 컨테이너, UI http://localhost:5000
 python -m watchog test               # ntfy 경로 확인 (폰에 알림이 오면 성공)
-python -m watchog run                # 자체 워처 1회 실행 (현재 워처 없음)
+python -m watchog recipes check      # recipes/*.yaml 검증
+python -m watchog recipes sync       # 레시피 → changedetection.io (--dry-run 가능)
+python -m watchog parse URL [SELECTOR]   # 등록 전 미리보기 (robots · 피드 · 셀렉터 후보)
+python -m pytest                     # 테스트 (네트워크 없음)
+python -m ruff check .               # 린트
 ```
 
 - API 키는 첫 기동 때 생성된다 → UI Settings → API → `.env` 의 `CDIO_API_KEY`.
-- 테스트·린트는 아직 없다. 붙이면 여기 갱신.
+- 변경 후 반드시 pytest·ruff 를 돌리고 결과를 보고한다.
 - "계약" 표의 항목을 바꿀 땐 사용하는 곳을 먼저 grep 하고 영향 표를 보여준 뒤 고친다.
 
 ## 구조 (코드 밖에서 알아야 하는 것만)
@@ -31,7 +35,11 @@ python -m watchog run                # 자체 워처 1회 실행 (현재 워처 
 | `watchog/core/` | Alert 모델·dispatch·seen-set·설정 로딩 | v0.5 자체 워처용. LLM 판정층(2·3층)에서 재사용 |
 | `watchog/sinks/ntfy.py` | ntfy 발송 | JSON 포맷 사용 — 헤더 방식은 한글이 깨진다 |
 | `config/watch.yaml` | 자체 워처 설정 | `${VAR}` 참조만 있어 커밋됨 |
-| `scripts/register_*.py` | 1주차 수동 등록 (채용·항공권) | 재실행 안전. MCP 서버가 생기면 이 스크립트가 도구로 바뀐다 |
+| `recipes/*.yaml` | **감시의 정본.** 주제 하나 = 파일 하나 (topic·kind·mode·runner·sources·verified) | `python -m watchog recipes sync` 가 changedetection.io 에 반영. 데이터가 날아가도 이걸로 재생성 |
+| `watchog/recipes.py` | 레시피 로더·검증·동기화 | `verified` 없으면 등록 거부 (검증 게이트) |
+| `watchog/extract.py` | robots 확인 · 피드 자동 발견 · 셀렉터 후보 · test_parse | Actions 러너와 MCP 서버가 같이 쓴다. 브라우저 렌더링은 안 함 |
+| `watchog/mcp_server.py` | MCP 서버 (list/test_parse/add/remove) | `claude mcp add watchog -- python -m watchog.mcp_server` |
+| `tests/` | pytest. 네트워크 없이 돈다 | |
 | `docs/adr/` | 설계 결정 | 결정마다 파일 하나 |
 
 ## 계약 — 다른 곳이 의존하는 것
@@ -40,7 +48,8 @@ python -m watchog run                # 자체 워처 1회 실행 (현재 워처 
 |---|---|---|---|---|
 | `.env` 키 `NTFY_TOPIC`, `NTFY_TOPIC_{MOVIE,JOBS,FLIGHT}`, `CDIO_URL`, `CDIO_API_KEY` | `.env.example` | `sinks/ntfy.py`, `cdio.py`, `config/watch.yaml`(`${NTFY_TOPIC}`), `.github/workflows/poll.yml`(secrets) | 나 | 넷 다 같이. Actions secrets 도 |
 | ntfy 토픽 규칙 `watchog-<모듈>-<랜덤>` | plan-v1 §6 | changedetection.io 의 알림 URL(`ntfys://ntfy.sh/<토픽>`), 폰 구독 | 나 | 폰 구독을 다시 해야 한다 |
-| changedetection.io 감시 `tag` = 모듈 이름 (`movie`/`jobs`/`flight`/`gamenews`) | plan-v1 §3 기본 모듈 | `cdio.add_watch(tag=)`, 앞으로 MCP `list_watches` 필터 | 나 | 기존 감시의 tag 도 갱신 |
+| changedetection.io 감시 제목 접두어 `<recipe>/<i> · ` | `recipes.py` `watch_key` | `recipes.sync` 가 이걸로 자기 감시를 찾고 고아를 지운다, `mcp_server.list_watches` | 나 | 접두어 바꾸면 기존 감시가 전부 고아·중복이 된다 |
+| 레시피 yaml 필드 (`topic`·`kind`·`mode`·`runner`·`sources[].type/select/trigger/every`·`verified`) | `recipes.py` 모듈 docstring | `recipes/*.yaml`, MCP 서버, Actions 러너, 설계 문서 | 나 | 셋 다 같이 |
 | `Alert` 데이터클래스 필드 | `core/notify.py` | `sinks/*.py`, `cli.py` | 나 | sink 전부 |
 | `data/seen.json` 형식 `{"seen": {"ns:id": iso}}` | `core/state.py` | Actions 가 커밋해 되돌림 | 나 | 기존 파일 마이그레이션 |
 
@@ -69,6 +78,8 @@ python -m watchog run                # 자체 워처 1회 실행 (현재 워처 
 | CGV 구 `iframeTheater.aspx` 파싱 | SPA 셸 HTML 200 이 와서 조용히 실패 | [docs/cgv.md](docs/cgv.md) 의 신규 API·레거시 백엔드 |
 | GitHub Actions 에서 changedetection.io | 상시 프로세스를 못 둠 | 로컬 Docker ([0001](docs/adr/0001-changedetection-로컬-docker.md)) |
 | `load_dotenv()` 를 인자 없이 stdin 스크립트에서 | 프레임 탐색이 실패 (Python 3.14) | `load_dotenv(find_dotenv(usecwd=True))` |
+| 잡코리아 검색 페이지 감시 | robots.txt 가 `/Search/?stext=` 를 명시 거부 | 사람인 (허용). 등록 전 `parse` 가 robots 를 본다 |
+| RSS 항목을 `select` 로 키워드 필터 (`//item/title[contains(.,"항공")]`) | 해당 글이 없는 시점에 필터 실패 오류 | `select` 는 전체, `trigger` 로 키워드 |
 
 ## 관련 문서
 

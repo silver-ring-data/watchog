@@ -39,6 +39,11 @@ def test_select_css_and_xpath():
     assert extract.select_items(p, "xpath://div[@class='row']//a")[0].startswith("[효성ITX]")
 
 
+def test_select_drops_numeric_only():
+    p = page('<div class="t"><a href="/1">진짜 제목 하나</a><a href="/1#c">12</a><a href="/2">둘째 제목입니다</a><a href="/2#c">[3]</a></div>')
+    assert extract.select_items(p, "div.t a") == ["진짜 제목 하나", "둘째 제목입니다"]
+
+
 def test_select_rss_titles():
     p = page(RSS, ct="text/xml")
     items = extract.select_items(p, "xpath://item/title")
