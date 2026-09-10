@@ -6,45 +6,54 @@
 이름은 포켓몬 **보르그(Watchog)** 에서 왔다. 소프트웨어에서 감시 프로세스를 뜻하는
 `watchdog` 과 한 글자 차이라, 둘 중 뭘 알든 무슨 물건인지 읽힌다.
 
-> **설계 정본은 [`docs/plan-v1.md`](docs/plan-v1.md) (2026-08-26).** 감시 엔진은 changedetection.io 를 재사용하고, 이 레포는 그 위의
-> MCP 서버(자연어 접수·검증·승격)와 ntfy 알림층을 만든다. 아래 구조는 2026-08-18 의 자체 워처 설계(v0.5)로, v1 착수 시 갱신한다.
+> **설계 정본은 [`docs/plan-v1.md`](docs/plan-v1.md).** 감시 엔진은 [changedetection.io](https://github.com/dgtlmoon/changedetection.io) 를
+> 재사용하고, 이 레포는 그 위의 MCP 서버(자연어 접수·검증·승격)와 ntfy 알림층을 만든다.
 > 전신: [`docs/design-v0.md`](docs/design-v0.md) (MyPlayScheduler, 게임 뉴스 특화).
+> **상태 (2026-09-11)**: 1주차 — 엔진 가동, 채용 감시 수동 등록. MCP 서버는 2주차.
 
 ## 왜 만드는가
 
-영화 예매 오픈, 채용 공고, 게임 패치 일정 — 겉보기엔 다른 일이지만 구조가 같다.
+영화 예매 오픈, 채용 공고, 항공권 핫딜, 게임 패치 일정 — 겉보기엔 다른 일이지만 구조가 같다.
 
 ```
 [주기적 수집] → [조건 매칭 / 변화 감지] → [중복 제거] → [푸시]
 ```
 
-다른 건 수집기와 매칭 규칙뿐이라, 프로젝트를 셋 만들 이유가 없다.
+다른 건 수집기와 매칭 규칙뿐이라, 프로젝트를 넷 만들 이유가 없다. 그리고 수집기와 변화 감지는
+이미 changedetection.io 가 잘 한다. 직접 만들 것은 **"○○ 알람 받고 싶어"를 등록으로 바꾸는 층**이다.
 
 ## 구조
 
 ```
+사용자 (자연어)
+   │
+Claude ── MCP 서버 (watchog, 2주차) ── changedetection.io (Docker) ── ntfy.sh ── 폰
+              │                              │  폴링·렌더링·diff
+              │ add_watch / list / remove    │  모듈별 토픽으로 발송
+              └ test_parse (검증 게이트)      └ 브라우저 컨테이너 (JS 사이트)
+```
+
+```
 watchog/
+├─ cdio.py           changedetection.io REST 클라이언트 — API 모양을 아는 유일한 곳
 ├─ core/
 │   ├─ notify.py     Alert 모델과 발송 (채널 교체 가능)
-│   ├─ state.py      중복 발송 방지  ← 가장 중요한 부분
+│   ├─ state.py      중복 발송 방지 (LLM 판정층에서 재사용)
 │   └─ config.py     YAML + ${ENV} 로딩
 ├─ sinks/
 │   └─ ntfy.py       ntfy 푸시
-├─ watchers/
-│   ├─ cgv.py        영화 예매 오픈
-│   ├─ jobs.py       채용 공고 (LLM 판정)
-│   └─ gamenews.py   게임 뉴스/일정
-└─ cli.py
+└─ cli.py            test / run
+docker-compose.yml   changedetection.io + sockpuppetbrowser
+docs/adr/            설계 결정
 ```
 
-워처는 알림 서비스를 직접 모르고 `Alert` 만 만들어 넘긴다. 나중에 텔레그램이나
-문자를 붙이는 일은 `sinks/` 에 파일 하나 추가하는 것으로 끝난다.
+### 3층 구조
 
-### state.py 가 왜 핵심인가
+1. **만능 폴백** — "이 페이지 이 영역이 바뀌면 알림". 어떤 URL 이든 즉시 작동.
+2. **구조화 모듈** — 셀렉터·키워드·임계값을 아는 모듈. 아래 표.
+3. **LLM 승격** — 주문을 받아 설정 초안을 만들고, `test_parse` 를 통과하면 2층으로. 실패하면 1층.
 
-5분마다 도는 프로그램은 매번 같은 항목을 다시 발견한다. 중복 제거가 없으면
-같은 알림이 영원히 반복되고, LLM으로 점수를 매기는 워처는 이미 판정한 공고에
-토큰을 계속 태운다. 실제로 LLM에 도달하는 물량의 90% 이상이 여기서 걸러진다.
+판정은 코드가 하고 LLM 은 접수와 서술만 한다.
 
 ## 알림 채널: 왜 ntfy 인가
 
@@ -66,16 +75,20 @@ ntfy는 계정 없이 앱 설치와 토픽 구독만으로 동작하고, `urgent
 
 ```bash
 pip install -r requirements.txt
-
 cp config/watch.example.yaml config/watch.yaml
-cp .env.example .env          # NTFY_TOPIC 을 본인 토픽으로 수정
+cp .env.example .env            # 토픽을 새로 만들어 넣는다 (주석 참고)
 
-export NTFY_TOPIC=watchog-...
-python -m watchog test        # 폰에 알림이 뜨면 성공
-python -m watchog run
+docker compose up -d            # 감시 엔진. UI: http://localhost:5000
+                                # Settings → API 의 키를 .env CDIO_API_KEY 에
+python -m watchog test          # 폰에 알림이 뜨면 성공
 ```
 
-## GitHub Actions로 24시간 돌리기
+폰에서는 ntfy 앱을 설치하고 `.env` 의 토픽을 구독한다. `sys` 토픽은 하트비트·에러용이라 항상 구독하고,
+모듈 토픽은 받고 싶은 것만 구독한다 — **구독이 곧 범위 선택**이다.
+
+## GitHub Actions (자체 워처용, 현재 비활성)
+
+감시 엔진은 로컬 Docker 에서 돈다 ([ADR 0001](docs/adr/0001-changedetection-로컬-docker.md)). 아래는 무상태 자체 워처를 Actions 로 돌릴 때의 메모다.
 
 1. Settings → Secrets → `NTFY_TOPIC` (+ 필요 시 `GEMINI_API_KEY`) 등록
 2. `.github/workflows/poll.yml` 이 약 10분 간격으로 실행
@@ -86,13 +99,14 @@ python -m watchog run
 > GitHub의 cron 최소 간격은 5분이고 부하에 따라 자주 지연된다. 분 단위 정확도가
 > 필요하면 그 구간만 로컬이나 VPS로 돌리는 편이 낫다.
 
-## 워처별 메모
+## 기본 모듈
 
-| 워처 | 상태 | 판정 방식 | 비고 |
+| 모듈 | 상태 (2026-09-11) | 판정 | 비고 |
 |---|---|---|---|
-| cgv | 조사 완료, 미구현 | 규칙 | [docs/cgv.md](docs/cgv.md) 참고 — 간단하지 않다 |
-| jobs | 미구현 | 규칙 + LLM | 2단 필터. 아래 참고 |
-| gamenews | 설계만 있음 | 규칙 + LLM | 구 MyPlayScheduler |
+| movie (영화관) | 소스 조사 완료, 미등록 | 규칙 | [docs/cgv.md](docs/cgv.md) — 간단하지 않다 |
+| jobs (채용) | **1층 diff 로 등록됨** (잡코리아 검색 3건) | 규칙 + LLM (2층 예정) | 아래 참고 |
+| flight (항공권) | **핫딜 감시 4건 등록됨** (Google Flights 특가 + 뽐뿌·루리웹 RSS·클리앙, "항공" 키워드) | 규칙 (키워드) | 구간 가격 추적은 하지 않는다. Google 은 브라우저 컨테이너 필수 |
+| gamenews (게임뉴스) | 설계만 있음 | 규칙 + LLM | 구 MyPlayScheduler. 캘린더 동기화는 이때 다시 본다 |
 
 ### jobs: 왜 LLM이 필요한가
 
@@ -119,4 +133,5 @@ LLM은 Gemini 무료 티어를 쓴다 (Flash 250 req/day, Flash-Lite 1,000 req/d
 |---|---|---|
 | cgv | 🦉 noctowl | 정확히 같은 시각에 운다 |
 | jobs | 🔮 xatu | 하루 종일 한 방향을 응시한다 |
+| flight | 🕊 wingull | 바다 건너 먼 곳까지 난다 |
 | gamenews | 🐦 chatot | 소리를 흉내 내어 옮긴다 |

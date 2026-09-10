@@ -1,0 +1,39 @@
+# changedetection.io 감시 엔진 (로컬 PC Docker).
+# 실행:  docker compose up -d      중지: docker compose down
+# UI:    http://localhost:5000     API 키는 UI → Settings → API 에서 확인한다.
+#
+# data/changedetection/ 은 감시 목록·스냅샷·API 키를 담으므로 gitignore 된다.
+
+services:
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    container_name: watchog-changedetection
+    hostname: changedetection
+    depends_on:
+      - browser-chrome
+    volumes:
+      - ./data/changedetection:/datastore
+    environment:
+      # JS 렌더링이 필요한 사이트(항공권·CGV 등)는 아래 브라우저 컨테이너로 가져온다.
+      - PLAYWRIGHT_DRIVER_URL=ws://browser-chrome:3000
+      - BASE_URL=http://localhost:5000
+      - TZ=Asia/Seoul
+      # 서버 부담을 줄이기 위해 폴링 간격의 하한을 둔다 (초).
+      - MINIMUM_SECONDS_RECHECK_TIME=300
+    ports:
+      # 로컬에서만 접근. 외부 노출이 필요해지면 그때 인증을 붙인다.
+      - "127.0.0.1:5000:5000"
+    restart: unless-stopped
+
+  browser-chrome:
+    image: dgtlmoon/sockpuppetbrowser:latest
+    container_name: watchog-browser
+    hostname: browser-chrome
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1024
+      - SCREEN_DEPTH=16
+      - MAX_CONCURRENT_CHROME_PROCESSES=4
+    restart: unless-stopped

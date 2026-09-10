@@ -12,6 +12,8 @@ import importlib
 import logging
 import sys
 
+from dotenv import find_dotenv, load_dotenv
+
 from watchog.core import config as config_mod
 from watchog.core.notify import Alert, dispatch
 from watchog.core.state import SeenStore
@@ -81,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
 
+    # .env holds the real secrets locally; on GitHub Actions the same names
+    # arrive as repository secrets, so a missing file is not an error.
+    load_dotenv(find_dotenv(usecwd=True))
     cfg = config_mod.load(args.config)
 
     if args.command == "test":
